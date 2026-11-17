@@ -2,8 +2,6 @@
 
 A complete, end-to-end **CI/CD pipeline** implementation for a Java Maven application (**CP08 – Computer Science Practical**). This repository automates source code checkout, compilation, JUnit 5 unit testing, JAR packaging, Docker image creation, and container deployment via a declarative `Jenkinsfile`.
 
----
-
 ## 🔄 Pipeline Workflow
 
 ```text
@@ -16,8 +14,6 @@ GitHub Push ──▶ Jenkins Checkout ──▶ Maven Compile & JUnit 5 Tests �
 4. **Package Application:** Packages the executable `HelloCICD-1.0.jar` (`mvn package -DskipTests`).
 5. **Docker Build:** Builds a lightweight container image (`hellocicd`) using `eclipse-temurin:17-jre`.
 6. **Deployment:** Removes any previous container and runs a fresh `hellocicd-container`.
-
----
 
 ## 📁 Repository Structure
 
@@ -32,22 +28,23 @@ HelloCICD/
     └── test/java/com/example/AppTest.java    # Automated JUnit 5 test suite
 ```
 
----
-
 ## 🛠️ Prerequisites & Server Setup (Ubuntu 24.04 / AWS EC2)
 
 ### 1. AWS EC2 Security Group Ports
+
 Ensure the following inbound TCP ports are open in your EC2 Security Group:
+
 * **Port `22` (SSH):** Terminal access to your EC2 instance.
 * **Port `8080` (Custom TCP):** Jenkins Web Dashboard.
 * **Port `8085` (Custom TCP):** Live web application & `/actuator/health` endpoint *(if running the Spring Boot browser deployment upgrade)*.
 
 ### 2. One-Shot Ubuntu / EC2 Installation
-> **1 GB RAM EC2 Tip (`t2.micro` / `t3.micro`):** Add a **2 GB swap file** and cap Jenkins heap memory so Maven builds and Docker don't freeze the server.
+
+> **AWS EC2 Free Tier Tip (`t2.micro` / `t3.micro` with 1 GB RAM & 8 GB Disk):** Add a swap file and cap Jenkins heap memory so Maven builds and Docker don't freeze the server. *(If using the default 8 GB root disk, use `1G` instead of `2G` for `/swapfile` or lower Jenkins' disk space monitor thresholds as shown in the Troubleshooting section below.)*
 
 ```bash
-# 1. Create 2GB Swap Space (prevents OOM freezes on 1GB RAM instances)
-sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+# 1. Create Swap Space (prevents OOM freezes on 1GB RAM instances)
+sudo fallocate -l 1G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 
 # 2. Install JDK 21 (required by Jenkins 2.580+), Maven, Git, Docker, and wget
@@ -77,11 +74,10 @@ sudo cat /var/lib/jenkins/secrets/initialAdminPassword
 1. Open `http://<YOUR-EC2-PUBLIC-IP>:8080` in your browser.
 2. Paste the unlock password above, click **Install Suggested Plugins**, and create your admin user.
 
----
-
 ## ⚡ How to Use This Repository in Jenkins
 
 ### Option A: Run Directly (Read-Only Demo)
+
 1. Open Jenkins and click **New Item**.
 2. Name the job `HelloCICD-Pipeline`, select **Pipeline**, and click **OK**.
 3. Under **Pipeline**, configure:
@@ -93,32 +89,34 @@ sudo cat /var/lib/jenkins/secrets/initialAdminPassword
 4. Click **Save** and hit **Build Now**.
 
 ### Option B: Fork & Customize (Recommended for Lab Evaluation)
+
 1. Click **Fork** at the top-right of this repository to copy it to your own GitHub account.
 2. Edit `Jenkinsfile` in your fork and replace `StevefromSpace` with your GitHub username:
+
    ```groovy
    git branch: 'main',
    url: 'https://github.com/<YOUR-GITHUB-USERNAME>/HelloCICD.git'
    ```
+
 3. Point your Jenkins job to your forked URL and click **Build Now**.
 4. *(Optional Auto-Trigger)* Under **Build Triggers**, enable **Poll SCM** with schedule `* * * * *` so every `git push` automatically triggers a build.
-
----
 
 ## 🌐 Console App vs. Live Browser Deployment (Port `8085`)
 
 * **Standard CP08 Console Mode (`main`):** Runs `App.java` as a standalone CLI program. The container prints two confirmation lines and exits (`Exited (0)`). Verify it using:
+
   ```bash
   docker logs hellocicd-container
   ```
+
 * **Live Browser Web Upgrade (Port `8085`):** When upgraded to a Spring Boot web service (`server.port=8085` with `spring-boot-starter-actuator`), the container runs in detached mode (`docker run -d -p 8085:8085 --name hellocicd-container hellocicd`) and exposes:
   * **Live Web UI:** `http://<YOUR-EC2-PUBLIC-IP>:8085`
   * **Health Check Endpoint:** `http://<YOUR-EC2-PUBLIC-IP>:8085/actuator/health` (`{"status":"UP"}`)
 
----
-
 ## 🛠️ Troubleshooting Guide
 
 ### Part 1: Official CP08 Practical Failure Scenarios
+
 To complete the Practical Assessment (**Green → Red → Green**), intentionally trigger a failure, inspect the Jenkins **Console Output**, fix it, and re-run:
 
 | # | Intentional Error | Failed Stage & Error Message | Fix |
@@ -128,21 +126,42 @@ To complete the Practical Assessment (**Green → Red → Green**), intentionall
 | **3** | Wrong expected value in `AppTest.java` (e.g., `assertEquals(99, 10 + 20)`) | **Automated Testing:** `Tests run: 2, Failures: 1` | Fix the test assertion or application logic and re-run. |
 | **4** | Wrong JAR name in `Dockerfile` | **Docker Build:** `COPY failed: file not found` | Ensure `COPY target/HelloCICD-1.0.jar app.jar` matches `<artifactId>-<version>.jar` in `pom.xml`. |
 | **5** | Jenkins lacks Docker permissions | **Deployment:** `permission denied while trying to connect to the Docker daemon` | Run `sudo usermod -aG docker jenkins && sudo systemctl restart jenkins`. |
-| **6** | Container name already exists | **Deployment:** `Conflict. The container name "/hellocicd-container" is already in use` | Include `docker rm -f hellocicd-container || true` before `docker run`. |
+| **6** | Container name already exists | **Deployment:** `Conflict. The container name "/hellocicd-container" is already in use` | Include `docker rm -f hellocicd-container \|\| true` before `docker run` in `Jenkinsfile`. |
 
 ### Part 2: Real-World AWS EC2 & Windows Gotchas
 
+* **Build Stuck on `"Waiting for next available executor"` (EC2 8 GB Disk Full / Node Offline):**
+  AWS EC2 Free Tier instances default to an **8 GB root volume**. Once Ubuntu, JDK 21, Maven, Docker, Jenkins, and swap space are installed, free disk space often drops below Jenkins' default `1GiB` cutoff, automatically marking the **Built-In Node** as **Offline**.
+  1. **Lower Jenkins Disk & Swap Monitor Thresholds:** Go to **Manage Jenkins → Nodes → Configure Monitors** (the gear/wrench icon) and update:
+     * **Free Disk Space Threshold:** `300MiB`
+     * **Free Disk Space Warning Threshold:** `4GiB`
+     * **Free Swap Space Threshold:** `300MiB`
+     * **Free Swap Space Warning Threshold:** `4GiB`
+  2. **Bring Node Online & Verify Executors:** Open **Manage Jenkins → Nodes → Built-In Node**, click **Bring this node back online**, and under **Configure** ensure **Number of executors** is set to `2`.
+  3. **Reclaim Disk Space via CLI (if needed):**
+     ```bash
+     sudo apt autoremove -y && sudo apt clean
+     sudo journalctl --vacuum-size=50M
+     sudo docker system prune -af --volumes
+     df -h /
+     ```
+
 * **Jenkins `apt update` GPG Key Error (`NO_PUBKEY 7198F4B714ABFC68`):**
   Older guides reference `jenkins.io-2023.key`, which fails signature verification on Ubuntu 24.04. Use the updated `jenkins.io-2026.key` shown in the setup script above.
+
 * **`jenkins.service` Fails to Start on Ubuntu:**
   Modern Jenkins (`2.580+`) requires **Java 21** to run the controller, even though our Maven project targets Java 17. Install `openjdk-21-jdk` and verify with `java -version` (or switch via `sudo update-alternatives --config java`).
+
 * **EC2 Freezes / SSH Disconnects During `mvn compile`:**
-  A 1 GB RAM instance (`t2.micro` / `t3.micro`) will run out of memory running Jenkins + Maven + Docker simultaneously. Always enable the **2 GB swap file** and set `-Xmx512m` in `JAVA_OPTS`.
+  A 1 GB RAM instance (`t2.micro` / `t3.micro`) will run out of memory running Jenkins + Maven + Docker simultaneously. Always enable a **swap file** and set `-Xmx512m` in `JAVA_OPTS`.
+
 * **Windows Hidden `.txt` File Extensions:**
   Saving `Dockerfile` or `Jenkinsfile` in Windows Notepad often creates `Dockerfile.txt` or `Jenkinsfile.txt`, causing Docker/Jenkins to fail with `"file not found"`. Verify in PowerShell with `dir` and rename if needed:
+
   ```powershell
   ren Dockerfile.txt Dockerfile
   ren Jenkinsfile.txt Jenkinsfile
   ```
+
 * **Jenkins `Deployment` Stage Hangs Forever (Web App Mode):**
   If running a Spring Boot web server on port `8085` instead of the exiting console app, make sure `docker run` includes `-d` (detached mode) so Jenkins doesn't wait indefinitely for the web server process to exit.
